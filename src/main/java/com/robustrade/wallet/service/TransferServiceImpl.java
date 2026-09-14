@@ -229,6 +229,11 @@ public class TransferServiceImpl implements TransferService {
             });
             return Optional.ofNullable(transfer);
         } catch (DataIntegrityViolationException ex) {
+            // Only recover from concurrent claims of the same idempotency key.
+            // Other integrity errors (unexpected constraints, etc.) must surface as-is.
+            if (!isIdempotencyUniqueViolation(ex)) {
+                throw ex;
+            }
             transferMetrics.markUniqueKeyRace();
             log.info(
                     "Unique-key race on idempotencyKey={}; will reload and replay",
@@ -236,6 +241,18 @@ public class TransferServiceImpl implements TransferService {
             );
             return Optional.empty();
         }
+    }
+
+    private static boolean isIdempotencyUniqueViolation(DataIntegrityViolationException ex) {
+        Throwable cause = ex.getMostSpecificCause();
+        String message = cause != null && cause.getMessage() != null
+                ? cause.getMessage()
+                : ex.getMessage();
+        if (message == null) {
+            return false;
+        }
+        return message.contains("transfers_idempotency_key")
+                || message.contains("idempotency_records");
     }
 
     private TransferResponse retryTransfer(UUID transferId) {

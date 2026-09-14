@@ -24,11 +24,13 @@ public class StatementServiceImpl implements StatementService {
     private final LedgerEntryRepository ledgerEntryRepository;
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public StatementResponse getStatement(Long userId, String walletId) {
         log.info("Building statement for userId={}, walletId={}", userId, walletId);
 
         try {
+            // Lock wallet for the duration of this TX so balance + ledger reads are consistent
+            // under concurrent transfers (avoids READ_COMMITTED split view).
             Wallet wallet = resolveWallet(userId, walletId);
             log.debug(
                     "Resolved wallet for statement: walletId={}, userId={}, currentBalance={}",
@@ -87,8 +89,8 @@ public class StatementServiceImpl implements StatementService {
         }
 
         if (hasWalletId) {
-            log.debug("Resolving wallet by walletId={}", walletId);
-            Wallet wallet = walletRepository.findById(walletId)
+            log.debug("Resolving wallet by walletId={} (FOR UPDATE)", walletId);
+            Wallet wallet = walletRepository.findByIdForUpdate(walletId)
                     .orElseThrow(WalletServiceException::walletNotFound);
             if (hasUserId && !wallet.getUserId().equals(userId)) {
                 log.error(
@@ -102,7 +104,7 @@ public class StatementServiceImpl implements StatementService {
             return wallet;
         }
 
-        log.debug("Resolving wallet by userId={}", userId);
+        log.debug("Resolving wallet by userId={} then locking row", userId);
         List<Wallet> wallets = walletRepository.findByUserId(userId);
         if (wallets.isEmpty()) {
             log.error("No wallet found for userId={}", userId);
@@ -112,7 +114,8 @@ public class StatementServiceImpl implements StatementService {
             log.error("Multiple wallets found for userId={}, count={}", userId, wallets.size());
             throw WalletServiceException.multipleWalletsForUser();
         }
-        return wallets.get(0);
+        return walletRepository.findByIdForUpdate(wallets.get(0).getId())
+                .orElseThrow(WalletServiceException::walletNotFound);
     }
 
     private static BigDecimal computeOpeningBalance(BigDecimal currentBalance, List<LedgerEntry> entries) {

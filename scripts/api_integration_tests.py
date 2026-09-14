@@ -200,11 +200,11 @@ class Suite:
         assert_true(body.get("failureReason") in (None, ""), f"failureReason={body}")
         assert_true(self.balance(from_w["walletId"]) == Decimal("400.00"), "from balance")
         assert_true(self.balance(to_w["walletId"]) == Decimal("150.00"), "to balance")
-        # Ledger presence inferred via statement entries
+        # Ledger presence inferred via statement entries (funding + transfer)
         _, from_stmt = self.get_statement(wallet_id=from_w["walletId"])
         _, to_stmt = self.get_statement(wallet_id=to_w["walletId"])
-        assert_true(len(from_stmt["entries"]) == 1, "from should have 1 ledger entry")
-        assert_true(len(to_stmt["entries"]) == 1, "to should have 1 ledger entry")
+        assert_true(len(from_stmt["entries"]) == 2, "from funding + debit")
+        assert_true(len(to_stmt["entries"]) == 2, "to funding + credit")
 
     def test_wallet_missing(self) -> None:
         _, from_w = self.create_wallet(self.next_user_id(), "100.00")
@@ -231,7 +231,8 @@ class Suite:
         assert_true(self.balance(from_w["walletId"]) == Decimal("40.00"), "from unchanged")
         assert_true(self.balance(to_w["walletId"]) == Decimal("10.00"), "to unchanged")
         _, from_stmt = self.get_statement(wallet_id=from_w["walletId"])
-        assert_true(len(from_stmt["entries"]) == 0, "no ledger on insufficient")
+        assert_true(len(from_stmt["entries"]) == 1, "only funding ledger on insufficient")
+        assert_true(from_stmt["entries"][0].get("transferId") is None, "funding only")
 
     def test_idempotent_replay(self) -> None:
         _, from_w = self.create_wallet(self.next_user_id(), "500.00")
@@ -324,8 +325,12 @@ class Suite:
         assert_true(st_from == 200, f"from statement {st_from}")
         assert_true(from_stmt["userId"] == from_user, "from userId")
         assert_true(dec(from_stmt["currentBalance"]) == Decimal("900.00"), "from balance")
-        assert_true(len(from_stmt["entries"]) == 1, "from entries")
-        entry = from_stmt["entries"][0]
+        assert_true(len(from_stmt["entries"]) == 2, "from entries (funding + debit)")
+        funding = from_stmt["entries"][0]
+        assert_true(funding["transferType"] == "CREDIT", f"funding type={funding}")
+        assert_true(funding.get("transferId") is None, "funding has no transferId")
+        assert_true(dec(funding["amount"]) == Decimal("1000.00"), "funding amount")
+        entry = from_stmt["entries"][1]
         assert_true(entry["transferType"] == "DEBIT", f"type={entry}")
         assert_true(dec(entry["amount"]) == Decimal("100.00"), "amount")
         assert_true(dec(entry["previousBalance"]) == Decimal("1000.00"), "prev")
@@ -334,6 +339,8 @@ class Suite:
         st_to, to_stmt = self.get_statement(wallet_id=to_w["walletId"])
         assert_true(st_to == 200, f"to statement {st_to}")
         assert_true(dec(to_stmt["currentBalance"]) == Decimal("100.00"), "to balance")
+        # Zero opening balance → no funding row; only transfer credit.
+        assert_true(len(to_stmt["entries"]) == 1, "to entries")
         assert_true(to_stmt["entries"][0]["transferType"] == "CREDIT", "credit")
         assert_true(dec(to_stmt["entries"][0]["previousBalance"]) == Decimal("0.00"), "to prev")
         assert_true(dec(to_stmt["entries"][0]["balanceAfterTransfer"]) == Decimal("100.00"), "to after")
@@ -345,7 +352,11 @@ class Suite:
         assert_true(status == 200, f"expected 200, got {status}: {body}")
         assert_true(body["walletId"] == wallet["walletId"], "walletId")
         assert_true(dec(body["currentBalance"]) == Decimal("250.00"), "balance")
-        assert_true(body.get("entries") == [], "entries empty")
+        assert_true(len(body.get("entries") or []) == 1, "funding entry present")
+        funding = body["entries"][0]
+        assert_true(funding.get("transferId") is None, "funding has no transferId")
+        assert_true(funding["transferType"] == "CREDIT", "funding credit")
+        assert_true(dec(funding["amount"]) == Decimal("250.00"), "funding amount")
 
     def test_statement_missing_params(self) -> None:
         status, body = self.get_statement()
@@ -421,8 +432,8 @@ class Suite:
         assert_true(self.balance(to_w["walletId"]) == Decimal("100.00"), "to final")
         _, from_stmt = self.get_statement(wallet_id=from_w["walletId"])
         _, to_stmt = self.get_statement(wallet_id=to_w["walletId"])
-        assert_true(len(from_stmt["entries"]) == 10, "10 debit entries")
-        assert_true(len(to_stmt["entries"]) == 10, "10 credit entries")
+        assert_true(len(from_stmt["entries"]) == 11, "funding + 10 debit entries")
+        assert_true(len(to_stmt["entries"]) == 10, "10 credit entries (zero opening)")
 
     def test_end_to_end(self) -> None:
         alice_user = self.next_user_id()
@@ -441,20 +452,24 @@ class Suite:
         assert_true(self.balance(bob["walletId"]) == Decimal("300.00"), "bob")
 
         _, alice_stmt = self.get_statement(wallet_id=alice["walletId"])
-        assert_true(len(alice_stmt["entries"]) == 2, "alice entries")
+        assert_true(len(alice_stmt["entries"]) == 3, "alice entries")
         assert_true(dec(alice_stmt["currentBalance"]) == Decimal("800.00"), "alice bal")
         assert_true(
-            dec(alice_stmt["entries"][0]["balanceAfterTransfer"]) == Decimal("750.00"),
+            dec(alice_stmt["entries"][0]["balanceAfterTransfer"]) == Decimal("1000.00"),
+            "alice funding",
+        )
+        assert_true(
+            dec(alice_stmt["entries"][1]["balanceAfterTransfer"]) == Decimal("750.00"),
             "alice after first",
         )
         assert_true(
-            dec(alice_stmt["entries"][1]["balanceAfterTransfer"]) == Decimal("800.00"),
+            dec(alice_stmt["entries"][2]["balanceAfterTransfer"]) == Decimal("800.00"),
             "alice after second",
         )
         _, bob_stmt = self.get_statement(user_id=bob_user)
         assert_true(bob_stmt["walletId"] == bob["walletId"], "bob wallet")
         assert_true(dec(bob_stmt["currentBalance"]) == Decimal("300.00"), "bob bal")
-        assert_true(len(bob_stmt["entries"]) == 2, "bob entries")
+        assert_true(len(bob_stmt["entries"]) == 3, "bob entries")
 
     # --- Concurrency handling ---
 
@@ -483,7 +498,7 @@ class Suite:
         assert_true(self.balance(from_w["walletId"]) == Decimal("150.00"), "from")
         assert_true(self.balance(to_w["walletId"]) == Decimal("50.00"), "to")
         _, from_stmt = self.get_statement(wallet_id=from_w["walletId"])
-        assert_true(len(from_stmt["entries"]) == 1, "debited once")
+        assert_true(len(from_stmt["entries"]) == 2, "funding + debited once")
 
     def test_concurrent_opposite_transfers_conserve_total(self) -> None:
         _, a = self.create_wallet(self.next_user_id(), "500.00")
@@ -540,7 +555,8 @@ class Suite:
         assert_true(s2 == 400 and body2.get("errorCode") == "INSUFFICIENT_BALANCE", f"{s2}/{body2}")
         assert_true(self.balance(from_w["walletId"]) == Decimal("20.00"), "unchanged")
         _, stmt = self.get_statement(wallet_id=from_w["walletId"])
-        assert_true(stmt["entries"] == [], "no ledger while failed")
+        assert_true(len(stmt["entries"]) == 1, "only funding while failed")
+        assert_true(stmt["entries"][0].get("transferId") is None, "funding only")
 
     # --- Retry-safe behavior ---
 
@@ -633,12 +649,15 @@ class Suite:
         assert_true(dec(stmt_a["currentBalance"]) == self.balance(a["walletId"]), "stmt a")
         assert_true(dec(stmt_b["currentBalance"]) == self.balance(b["walletId"]), "stmt b")
         assert_true(dec(stmt_c["currentBalance"]) == self.balance(c["walletId"]), "stmt c")
-        assert_true(dec(stmt_a["entries"][0]["balanceAfterTransfer"]) == Decimal("800.00"), "a0")
-        assert_true(dec(stmt_a["entries"][1]["balanceAfterTransfer"]) == Decimal("825.00"), "a1")
-        assert_true(dec(stmt_b["entries"][0]["balanceAfterTransfer"]) == Decimal("300.00"), "b0")
-        assert_true(dec(stmt_b["entries"][1]["balanceAfterTransfer"]) == Decimal("225.00"), "b1")
-        assert_true(dec(stmt_c["entries"][0]["balanceAfterTransfer"]) == Decimal("125.00"), "c0")
-        assert_true(dec(stmt_c["entries"][1]["balanceAfterTransfer"]) == Decimal("100.00"), "c1")
+        assert_true(dec(stmt_a["entries"][0]["balanceAfterTransfer"]) == Decimal("1000.00"), "a funding")
+        assert_true(dec(stmt_a["entries"][1]["balanceAfterTransfer"]) == Decimal("800.00"), "a0")
+        assert_true(dec(stmt_a["entries"][2]["balanceAfterTransfer"]) == Decimal("825.00"), "a1")
+        assert_true(dec(stmt_b["entries"][0]["balanceAfterTransfer"]) == Decimal("100.00"), "b funding")
+        assert_true(dec(stmt_b["entries"][1]["balanceAfterTransfer"]) == Decimal("300.00"), "b0")
+        assert_true(dec(stmt_b["entries"][2]["balanceAfterTransfer"]) == Decimal("225.00"), "b1")
+        assert_true(dec(stmt_c["entries"][0]["balanceAfterTransfer"]) == Decimal("50.00"), "c funding")
+        assert_true(dec(stmt_c["entries"][1]["balanceAfterTransfer"]) == Decimal("125.00"), "c0")
+        assert_true(dec(stmt_c["entries"][2]["balanceAfterTransfer"]) == Decimal("100.00"), "c1")
 
     def test_failed_transfer_leaves_balances_and_statements_untouched(self) -> None:
         _, from_w = self.create_wallet(self.next_user_id(), "55.00")
@@ -651,7 +670,8 @@ class Suite:
         assert_true(self.balance(to_w["walletId"]) == Decimal("10.00"), "to")
         _, from_stmt = self.get_statement(wallet_id=from_w["walletId"])
         _, to_stmt = self.get_statement(wallet_id=to_w["walletId"])
-        assert_true(from_stmt["entries"] == [] and to_stmt["entries"] == [], "no entries")
+        assert_true(len(from_stmt["entries"]) == 1 and from_stmt["entries"][0].get("transferId") is None, "from funding only")
+        assert_true(len(to_stmt["entries"]) == 1 and to_stmt["entries"][0].get("transferId") is None, "to funding only")
 
 
 class SkipTest(Exception):

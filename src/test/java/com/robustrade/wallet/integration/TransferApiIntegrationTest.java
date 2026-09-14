@@ -86,6 +86,21 @@ class TransferApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void createTransfer_whenSameKeyAndEquivalentAmountScale_replaysWithoutConflict() throws Exception {
+        WalletResponse from = createWallet(2020L, "500.00");
+        WalletResponse to = createWallet(2021L, "0.00");
+
+        TransferResponse first = createTransfer("xfer-scale-hash", from.getWalletId(), to.getWalletId(), "100.00");
+        TransferResponse second = createTransfer("xfer-scale-hash", from.getWalletId(), to.getWalletId(), "100.0");
+
+        assertThat(second.getTransferId()).isEqualTo(first.getTransferId());
+        assertThat(second.getState()).isEqualTo(TransferState.PROCESSED);
+        assertThat(walletBalance(from.getWalletId())).isEqualByComparingTo("400.00");
+        assertThat(walletBalance(to.getWalletId())).isEqualByComparingTo("100.00");
+        assertThat(ledgerEntryCount(first.getTransferId())).isEqualTo(2);
+    }
+
+    @Test
     void createTransfer_whenSameIdempotencyKeyDifferentPayload_returnsConflict() throws Exception {
         WalletResponse from = createWallet(2008L, "500.00");
         WalletResponse to = createWallet(2009L, "0.00");
@@ -133,6 +148,31 @@ class TransferApiIntegrationTest extends AbstractIntegrationTest {
         performTransfer("xfer-invalid-amount", from.getWalletId(), to.getWalletId(), "0.00")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void createTransfer_whenAmountHasTooManyFractionDigits_returnsValidationError() throws Exception {
+        WalletResponse from = createWallet(2017L, "100.00");
+        WalletResponse to = createWallet(2018L, "0.00");
+
+        performTransfer("xfer-scale-invalid", from.getWalletId(), to.getWalletId(), "1.001")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message")
+                        .value("amount must match NUMERIC(15,2) (max 13 digits before decimal, 2 after)"));
+    }
+
+    @Test
+    void createTransfer_whenIdempotencyKeyTooLong_returnsValidationError() throws Exception {
+        WalletResponse from = createWallet(2015L, "100.00");
+        WalletResponse to = createWallet(2016L, "0.00");
+        String tooLongKey = "k".repeat(129);
+
+        performTransfer(tooLongKey, from.getWalletId(), to.getWalletId(), "10.00")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message")
+                        .value("idempotencyKey must be at most 128 characters"));
     }
 
     @Test

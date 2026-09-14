@@ -147,6 +147,47 @@ class TransferHandlerTest {
     }
 
     @Test
+    void createTransfer_whenAmountHasTooManyFractionDigits_returnsBadRequest() throws Exception {
+        CreateTransferRequest request = CreateTransferRequest.builder()
+                .idempotencyKey("key-1")
+                .fromWalletId("wallet-a")
+                .toWalletId("wallet-b")
+                .amount(new BigDecimal("1.001"))
+                .build();
+
+        mockMvc.perform(post("/transfers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message")
+                        .value("amount must match NUMERIC(15,2) (max 13 digits before decimal, 2 after)"));
+
+        verify(transferService, never()).createTransfer(any());
+    }
+
+    @Test
+    void createTransfer_whenIdempotencyKeyTooLong_returnsBadRequest() throws Exception {
+        String tooLongKey = "k".repeat(129);
+        CreateTransferRequest request = CreateTransferRequest.builder()
+                .idempotencyKey(tooLongKey)
+                .fromWalletId("wallet-a")
+                .toWalletId("wallet-b")
+                .amount(new BigDecimal("100.00"))
+                .build();
+
+        mockMvc.perform(post("/transfers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message")
+                        .value("idempotencyKey must be at most 128 characters"));
+
+        verify(transferService, never()).createTransfer(any());
+    }
+
+    @Test
     void createTransfer_whenWalletsSame_returnsBadRequest() throws Exception {
         CreateTransferRequest request = CreateTransferRequest.builder()
                 .idempotencyKey("key-1")

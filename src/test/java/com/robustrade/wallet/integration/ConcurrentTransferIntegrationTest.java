@@ -70,7 +70,8 @@ class ConcurrentTransferIntegrationTest extends AbstractIntegrationTest {
         assertThat(walletBalance(to.getWalletId())).isEqualByComparingTo("100.00");
 
         Integer ledgerRows = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM ledger_entries", Integer.class);
-        assertThat(ledgerRows).isEqualTo(20);
+        // 1 opening funding (from) + 10 successful transfers × 2 (debit+credit)
+        assertThat(ledgerRows).isEqualTo(21);
     }
 
     @Test
@@ -87,16 +88,18 @@ class ConcurrentTransferIntegrationTest extends AbstractIntegrationTest {
         assertThat(walletBalance(bob.getWalletId())).isEqualByComparingTo("300.00");
 
         StatementResponse aliceStatement = getStatementByWalletId(alice.getWalletId());
-        assertThat(aliceStatement.getEntries()).hasSize(2);
+        assertThat(aliceStatement.getEntries()).hasSize(3);
         assertThat(aliceStatement.getCurrentBalance()).isEqualByComparingTo("800.00");
         assertThat(aliceStatement.getEntries().get(0).getBalanceAfterTransfer())
-                .isEqualByComparingTo("750.00");
+                .isEqualByComparingTo("1000.00");
         assertThat(aliceStatement.getEntries().get(1).getBalanceAfterTransfer())
+                .isEqualByComparingTo("750.00");
+        assertThat(aliceStatement.getEntries().get(2).getBalanceAfterTransfer())
                 .isEqualByComparingTo("800.00");
 
         StatementResponse bobStatement = getStatementByUserId(4102L);
         assertThat(bobStatement.getWalletId()).isEqualTo(bob.getWalletId());
         assertThat(bobStatement.getCurrentBalance()).isEqualByComparingTo("300.00");
-        assertThat(bobStatement.getEntries()).hasSize(2);
+        assertThat(bobStatement.getEntries()).hasSize(3);
     }
 }

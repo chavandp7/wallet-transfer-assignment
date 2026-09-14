@@ -23,7 +23,8 @@ public class TransferStatusService {
         log.debug("markFailed details: transferId={}, reason={}", transferId, reason);
 
         try {
-            Transfer transfer = transferRepository.findById(transferId)
+            // Lock the row so we cannot overwrite a concurrently committed PROCESSED transfer.
+            Transfer transfer = transferRepository.findByIdForUpdate(transferId)
                     .orElseThrow(() -> new IllegalStateException("Transfer not found: " + transferId));
             if (transfer.getState() == TransferState.PROCESSED) {
                 log.debug("Skipping markFailed; transfer already PROCESSED: transferId={}", transferId);

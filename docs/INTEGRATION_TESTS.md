@@ -111,16 +111,18 @@ Two wallets, two transfers (A→B then B→A), then statement checks for chronol
 2. `concurrentOppositeDirectionTransfers_conserveTotalBalance` — parallel A↔B transfers conserve total funds.
 
 ### Safe state transitions
-3. `processedTransfer_replayKeepsProcessedAndDoesNotChangeStateOrBalances` — PROCESSED stays PROCESSED on replay.
-4. `failedTransfer_remainsFailedUntilSuccessfulRetry` — FAILED remains FAILED without top-up; no ledger rows.
+3. `markFailed_afterProcessed_doesNotOverwriteStateOrLedger` — late `markFailed` cannot clobber `PROCESSED` or ledger.
+4. `markFailed_blockedBehindSuccessLock_doesNotOverwriteProcessed` — concurrent success holding `FOR UPDATE` wins; `markFailed` then sees `PROCESSED` and skips.
+5. `processedTransfer_replayKeepsProcessedAndDoesNotChangeStateOrBalances` — PROCESSED stays PROCESSED on replay.
+6. `failedTransfer_remainsFailedUntilSuccessfulRetry` — FAILED remains FAILED without top-up; no ledger rows.
 
 ### Retry-safe behavior
-5. `retryAfterTopUp_isIdempotentOnFurtherReplays` — FAILED → top-up → PROCESSED → replay does not double-debit.
-6. `concurrentRetriesOfFailedKey_afterTopUp_succeedOnce` — parallel retries after top-up share one PROCESSED.
+7. `retryAfterTopUp_isIdempotentOnFurtherReplays` — FAILED → top-up → PROCESSED → replay does not double-debit.
+8. `concurrentRetriesOfFailedKey_afterTopUp_succeedOnce` — parallel retries after top-up share one PROCESSED.
 
 ### Correct balance tracking
-7. `multiHopTransfers_statementBalancesMatchWalletAndConserveFunds` — A→B→C→A conserves total; statements match wallets.
-8. `failedTransfer_doesNotAffectBalancesOrStatementEntries` — failed path leaves balances/entries untouched.
+9. `multiHopTransfers_statementBalancesMatchWalletAndConserveFunds` — A→B→C→A conserves total; statements match wallets.
+10. `failedTransfer_doesNotAffectBalancesOrStatementEntries` — failed path leaves balances/entries untouched.
 
 ## How to run
 

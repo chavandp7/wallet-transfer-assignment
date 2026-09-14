@@ -48,7 +48,7 @@ class StatementServiceImplTest {
                 ledgerEntry(wallet.getId(), transfer2, TransactionType.DEBIT, "100.00", t2)
         );
 
-        when(walletRepository.findById("wallet-1")).thenReturn(Optional.of(wallet));
+        when(walletRepository.findByIdForUpdate("wallet-1")).thenReturn(Optional.of(wallet));
         when(ledgerEntryRepository.findByWalletIdOrderByCreatedAtAscIdAsc("wallet-1"))
                 .thenReturn(ledgerEntries);
 
@@ -75,7 +75,7 @@ class StatementServiceImplTest {
         assertThat(second.getBalanceAfterTransfer()).isEqualByComparingTo("900.00");
         assertThat(second.getTransferDate()).isEqualTo(t2);
 
-        verify(walletRepository).findById("wallet-1");
+        verify(walletRepository).findByIdForUpdate("wallet-1");
         verify(ledgerEntryRepository).findByWalletIdOrderByCreatedAtAscIdAsc("wallet-1");
     }
 
@@ -84,6 +84,7 @@ class StatementServiceImplTest {
         Wallet wallet = wallet("wallet-1", 1001L, "500.00");
 
         when(walletRepository.findByUserId(1001L)).thenReturn(List.of(wallet));
+        when(walletRepository.findByIdForUpdate("wallet-1")).thenReturn(Optional.of(wallet));
         when(ledgerEntryRepository.findByWalletIdOrderByCreatedAtAscIdAsc("wallet-1"))
                 .thenReturn(List.of());
 
@@ -93,13 +94,15 @@ class StatementServiceImplTest {
         assertThat(response.getUserId()).isEqualTo(1001L);
         assertThat(response.getCurrentBalance()).isEqualByComparingTo("500.00");
         assertThat(response.getEntries()).isEmpty();
+        verify(walletRepository).findByUserId(1001L);
+        verify(walletRepository).findByIdForUpdate("wallet-1");
     }
 
     @Test
     void getStatement_whenBothParamsProvidedAndMatch_usesWalletId() {
         Wallet wallet = wallet("wallet-1", 1001L, "100.00");
 
-        when(walletRepository.findById("wallet-1")).thenReturn(Optional.of(wallet));
+        when(walletRepository.findByIdForUpdate("wallet-1")).thenReturn(Optional.of(wallet));
         when(ledgerEntryRepository.findByWalletIdOrderByCreatedAtAscIdAsc("wallet-1"))
                 .thenReturn(List.of());
 
@@ -107,7 +110,7 @@ class StatementServiceImplTest {
 
         assertThat(response.getWalletId()).isEqualTo("wallet-1");
         assertThat(response.getUserId()).isEqualTo(1001L);
-        verify(walletRepository).findById("wallet-1");
+        verify(walletRepository).findByIdForUpdate("wallet-1");
     }
 
     @Test
@@ -123,7 +126,7 @@ class StatementServiceImplTest {
 
     @Test
     void getStatement_whenWalletNotFound_throwsNotFound() {
-        when(walletRepository.findById("missing-wallet")).thenReturn(Optional.empty());
+        when(walletRepository.findByIdForUpdate("missing-wallet")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> statementService.getStatement(null, "missing-wallet"))
                 .isInstanceOf(WalletServiceException.class)
@@ -153,7 +156,7 @@ class StatementServiceImplTest {
     @Test
     void getStatement_whenWalletDoesNotBelongToUser_throwsMismatch() {
         Wallet wallet = wallet("wallet-1", 2002L, "100.00");
-        when(walletRepository.findById("wallet-1")).thenReturn(Optional.of(wallet));
+        when(walletRepository.findByIdForUpdate("wallet-1")).thenReturn(Optional.of(wallet));
 
         assertThatThrownBy(() -> statementService.getStatement(1001L, "wallet-1"))
                 .isInstanceOf(WalletServiceException.class)

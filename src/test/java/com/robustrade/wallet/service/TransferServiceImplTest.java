@@ -226,6 +226,29 @@ class TransferServiceImplTest {
     }
 
     @Test
+    void createTransfer_whenNonIdempotencyIntegrityViolation_rethrows() {
+        CreateTransferRequest request = request("key-1", "wallet-a", "wallet-b", "100.00");
+
+        when(walletRepository.existsById("wallet-a")).thenReturn(true);
+        when(walletRepository.existsById("wallet-b")).thenReturn(true);
+        when(idempotencyRecordRepository.findByIdempotencyKey("key-1")).thenReturn(Optional.empty());
+        org.springframework.dao.DataIntegrityViolationException integrityError =
+                new org.springframework.dao.DataIntegrityViolationException(
+                        "could not execute statement",
+                        new RuntimeException("Check constraint violation: transfers_amount_ck")
+                );
+        org.mockito.Mockito.doThrow(integrityError).when(transactionTemplate).execute(any());
+
+        assertThatThrownBy(() -> transferService.createTransfer(request))
+                .isSameAs(integrityError);
+
+        verify(transferMetrics, never()).markUniqueKeyRace();
+        verify(idempotencyRecordRepository, org.mockito.Mockito.times(1))
+                .findByIdempotencyKey("key-1");
+        verify(transferRepository, never()).findById(any());
+    }
+
+    @Test
     void createTransfer_whenIdempotencyKeyExistsAndFailed_retriesAndSucceeds() {
         CreateTransferRequest request = request("key-1", "wallet-a", "wallet-b", "100.00");
         String hash = RequestHash.from("wallet-a", "wallet-b", new BigDecimal("100.00"));

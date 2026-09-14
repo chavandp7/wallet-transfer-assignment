@@ -113,4 +113,22 @@ class WalletHandlerTest {
 
         verify(walletService, never()).createWallet(any());
     }
+
+    @Test
+    void createWallet_whenBalanceHasTooManyFractionDigits_returnsBadRequest() throws Exception {
+        CreateWalletRequest request = CreateWalletRequest.builder()
+                .userId(1001L)
+                .balance(new BigDecimal("100.001"))
+                .build();
+
+        mockMvc.perform(post("/wallets")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message")
+                        .value("balance must match NUMERIC(15,2) (max 13 digits before decimal, 2 after)"));
+
+        verify(walletService, never()).createWallet(any());
+    }
 }

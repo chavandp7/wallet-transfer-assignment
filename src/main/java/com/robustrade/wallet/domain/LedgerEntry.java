@@ -53,7 +53,8 @@ public class LedgerEntry {
     @Column(name = "wallet_id", nullable = false, length = 36)
     private String walletId;
 
-    @Column(name = "transfer_id", nullable = false)
+    /** Null for opening-balance funding credits that are not tied to a transfer. */
+    @Column(name = "transfer_id")
     private UUID transferId;
 
     @Enumerated(EnumType.STRING)
@@ -72,6 +73,14 @@ public class LedgerEntry {
 
     public static LedgerEntry credit(String walletId, UUID transferId, BigDecimal amount) {
         return of(walletId, transferId, TransactionType.CREDIT, amount);
+    }
+
+    /**
+     * Records initial wallet funding as a CREDIT with no {@code transfer_id},
+     * so statements can explain non-zero opening balances.
+     */
+    public static LedgerEntry initialFunding(String walletId, BigDecimal amount) {
+        return of(walletId, null, TransactionType.CREDIT, amount);
     }
 
     private static LedgerEntry of(
